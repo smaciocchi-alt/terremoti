@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SeismoMED • Monitor Sismico Centro Mediterraneo</title>
+    <style>
+        :root {
+            --bg-color: #121214;
+            --card-bg: #1a1a1e;
+            --text-color: #e2e8f0;
+            --text-muted: #94a3b8;
+            --accent-low: #22c55e;
+            --accent-mid: #eab308;
+            --accent-high: #ef4444;
+            --border-color: #2e2e33;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            line-height: 1.5;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin: 0;
+            letter-spacing: -0.025em;
+        }
+
+        h1 span {
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            background: var(--card-bg);
+            padding: 6px 12px;
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-low);
+            border-radius: 50%;
+            box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+            animation: pulse 1.6s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+        }
+
+        .quake-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .quake-card:hover {
+            border-color: #44444a;
+        }
+
+        .quake-info {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .mag-badge {
+            width: 48px;
+            height: 48px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: #fff;
+        }
+
+        .mag-low { background-color: var(--accent-low); }
+        .mag-mid { background-color: var(--accent-mid); color: #121214; }
+        .mag-high { background-color: var(--accent-high); }
+
+        .quake-details .place {
+            font-weight: 500;
+            font-size: 1rem;
+            margin-bottom: 4px;
+        }
+
+        .quake-details .time {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .quake-meta {
+            text-align: right;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .depth {
+            font-family: monospace;
+            background: #222227;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        #error-msg {
+            color: var(--accent-high);
+            text-align: center;
+            padding: 20px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>SeismoMED <span>• Ultime 48h (Mag. 2.0+)</span></h1>
+        <div class="status-badge">
+            <div class="pulse-dot"></div>
+            <span id="update-status">Aggiornamento in tempo reale</span>
+        </div>
+    </header>
+
+    <div id="loading">Connessione ai nodi sismici in corso...</div>
+    <div id="error-msg">Impossibile recuperare i dati. Riprova più tardi.</div>
+    
+    <div class="grid" id="quake-container"></div>
+</div>
+
+<script>
+    // Configurazione area geografica: Centro-Sud Europa / Mediterraneo Centrale
+    // Latitudini: 34.0 a 47.0 | Longitudini: 6.0 a 20.0 (Copre interamente l'Italia e mari limitrofi)
+    const API_URL = 'https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&minmagnitude=2.0&minlatitude=34.0&maxlatitude=47.0&minlongitude=6.0&maxlongitude=20.0';
+
+    async function fetchSeismicData() {
+        const container = document.getElementById('quake-container');
+        const loading = document.getElementById('loading');
+        const errorMsg = document.getElementById('error-msg');
+
+        try {
+            const response = await fetch(API_URL);
+            if (!response.ok) throw new Error('Network response error');
+            
+            const data = await response.json();
+            loading.style.display = 'none';
+            errorMsg.style.display = 'none';
+            container.innerHTML = '';
+
+            const events = data.features;
+
+            if (events.length === 0) {
+                container.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px;">Nessun evento sismico rilevato nelle ultime 48 ore in quest\'area.</div>';
+                return;
+            }
+
+            events.forEach(quake => {
+                const props = quake.properties;
+                const coords = quake.geometry.coordinates;
+                const mag = props.mag.toFixed(1);
+                const place = props.place;
+                const depth = coords[2].toFixed(1); // Terzo elemento è la profondità in km
+                
+                // Formattazione data locale italiana
+                const date = new Date(props.time);
+                const formattedTime = date.toLocaleString('it-IT', { 
+                    day: '2-digit', 
+                    month: '2-digit', 
+                    year: 'numeric',
+                    hour: '2-digit', 
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+
+                // Determina la classe di intensità della magnitudo
+                let magClass = 'mag-low';
+                if (props.mag >= 3.0 && props.mag < 4.5) magClass = 'mag-mid';
+                if (props.mag >= 4.5) magClass = 'mag-high';
+
+                // Creazione elemento card
+                const card = document.createElement('div');
+                card.className = 'quake-card';
+                card.innerHTML = `
+                    <div class="quake-info">
+                        <div class="mag-badge ${magClass}">${mag}</div>
+                        <div class="quake-details">
+                            <div class="place">${cleanPlaceName(place)}</div>
+                            <div class="time">${formattedTime}</div>
+                        </div>
+                    </div>
+                    <div class="quake-meta">
+                        Ipocentro: <span class="depth">${depth} km</span>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+
+        } catch (error) {
+            console.error('Errore nel recupero dati:', error);
+            loading.style.display = 'none';
+            errorMsg.style.display = 'block';
+        }
+    }
+
+    // Semplifica i nomi dei luoghi restituiti dalle API internazionali per una migliore leggibilità
+    function cleanPlaceName(place) {
+        return place
+            .replace('Region, Italy', 'Italia')
+            .replace(', Italy', ' - Italia')
+            .replace('Central Italy', 'Italia Centrale')
+            .replace('Southern Italy', 'Italia Meridionale')
+            .replace('Northern Italy', 'Italia Settentrionale');
+    }
+
+    // Inizializza e imposta l'aggiornamento automatico ogni 2 minuti
+    fetchSeismicData();
+    setInterval(fetchSeismicData, 120000);
+</script>
+
+</body>
+</html>
